@@ -1,0 +1,11 @@
+name: aedv
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - scikit-learn
+  - jupyterlab
+  - pandas
+  - matplotlib
+prefix: /home/aurora/miniconda3/envs/aedv

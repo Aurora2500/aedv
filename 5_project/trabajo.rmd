@@ -1,0 +1,19 @@
+---
+title: "Trabajo ggplot2 y dplyr"
+author: "Aurora Zuoris"
+output: pdf_document
+---
+
+# Primera fase
+
+```{r setup, include=FALSE}
+```
+
+# Segunda fase
+
+# Tercera fase
+
+# Reto: mapa de color
+
+# Reto: mapa de España
+

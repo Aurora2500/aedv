@@ -1,0 +1,81 @@
+---
+title: "AAAA"
+author: "Aurora Zuoris"
+output: pdf_document
+---
+
+# aaa
+
+```{r}
+library(ggplot2)
+```
+
+```{r}
+ggplot(data=mpg) +
+  aes(x=displ, y=cty) +
+  geom_point(alpha=0.25, color="blue") +
+  geom_point(aes(y=hwy), color="red")
+```
+## Sin solape
+
+```{r}
+ggplot(data=mpg) +
+  aes(x=cyl, y=cty) +
+  geom_point()+ 
+  geom_jitter(alpha=0.25, color="blue")
+```
+
+```{r}
+ggplot(data=mpg) +
+  geom_boxplot(aes(y=cty), color="blue") +
+  geom_boxplot(aes(y=hwy), color="red") +
+  facet_grid(~cyl)
+```
+## Manipular datos
+
+```{r}
+mipega <- function(miles_per_gallon) 235.215 / miles_per_gallon
+```
+
+
+Tuberias!!!
+
+```{r}
+mpg %>%
+  mutate(cty=mipega(cty), hwy=mipega(hwy)) %>%
+  rename(curbano=cty, ccarretera=hwy) %>%
+  filter(class=="suv") -> newdata
+```
+
+ggplot time :)
+
+```{r}
+ggplot(newdata) +
+  aes(x=displ, y=curbano) +
+  geom_point(color="red") +
+  geom_smooth(color="black")
+
+```
+
+
+# Mapas
+
+Dataset map_data
+```{r}
+md <- map_data("world")
+md %>%
+  filter(region == "Canary Islands" | region == "Spain") %>% 
+  mutate(lat= if(region=="Canary Islands") lat+8 else lat) %>%
+  ggplot() +
+  aes(x=long, y=lat, group=group) +
+  geom_polygon(fill="white", color="black") +
+  coord_quickmap()
+```
+
+
+
+
+
+
+
+
