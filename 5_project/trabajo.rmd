@@ -1,7 +1,12 @@
 ---
 title: "Trabajo ggplot2 y dplyr"
 author: "Aurora Zuoris"
-output: pdf_document
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    df_print: tibble
+
 ---
 
 ```{r setup, include=FALSE}
@@ -67,7 +72,7 @@ aula %>%
 ```
 Antes de decidir si se reemplazan estas observaciones, comprobamos el archivo original para ver si esto se trata de un simple problema de lectura.
 
-```{bash check-NAs}
+```{bash check-NAs-bash}
 grep '12/04/22.*09:35\|11/09/22.*06:59' co2/Sensor_7_Aula_2-5.txt
 ```
 
