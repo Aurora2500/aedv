@@ -4,16 +4,489 @@ author: "Aurora Zuoris"
 output: pdf_document
 ---
 
+```{r setup, include=FALSE}
+library(tidyverse)
+library(magrittr)
+library(hms)
+```
+
 # Primera fase
 
-```{r setup, include=FALSE}
+## Lectura y preparación de los datos
+
+Para completar la primera fase primero se eligira una aula para estudiar.
+Elegí la 2-5 por el simple hecho de ser la aula en la que estudie el primer año en la universidad.
+
+Pero primero hace falta que entender en qué formato estan los archivos
+```{bash file-exploration1}
+file co2/*
 ```
+
+```{bash file-exploration2}
+head co2/Sensor_7_Aula_2-5.txt
+```
+
+Se ve que los campos en los archivos estan delimitado por tabuladores, el separador decimal es la coma, y que los archivos estan codificados en ISO-8859.
+Pues se considera todo esto al leer los archivos con la función `read_tsv` de readr de tidyverse:
+
+<!-- Se apagan los avisos porque una observación en el archivo usa el punto como separador decimal, esto se rectifica más adelante en esta misma sección --> 
+```{r read-1, warning=FALSE}
+aula <- read_tsv("co2/Sensor_7_Aula_2-5.txt", locale=locale(encoding="iso88591", decimal_mark=","), show_col_types=FALSE)
+
+head(aula)
+```
+
+Por último, para tener los datos listos para el analysis, se renombrarán los nombres de las columnas para que sea más facil referirse a ellas, y además se transformarán ambas columnas referiendose a la fecha y hora a una única columna referiendose a la instancia en un típo apropiado.
+
+```{r prepare-data}
+aula %<>%
+  rename(
+    temperatura="Temperatura (ºC)",
+    humedad="Humedad Relativa (%)",
+    co2="CO2 ppm"
+  ) %>%
+  mutate(
+    dt = dmy_hms(paste(Fecha, Hora)),
+    .keep="unused"
+  )
+
+head(aula)
+```
+
+Por último, se comprueba si existen NAs en los datos:
+
+```{r check-NAs}
+summary(aula)
+```
+
+Se observa que existen un par de NAs:
+
+```{r find-NAs}
+aula %>%
+  filter(is.na(co2) | is.na(humedad))
+```
+Antes de decidir si se reemplazan estas observaciones, comprobamos el archivo original para ver si esto se trata de un simple problema de lectura.
+
+```{bash check-NAs}
+grep '12/04/22.*09:35\|11/09/22.*06:59' co2/Sensor_7_Aula_2-5.txt
+```
+
+Es obvio que hay un error en los datos en sí, sea que un sensor malfuncionó o algo parecido, pero no era un problema de la lectura de los archivos a R.
+En este caso, ya que tenemos de 97K observaciones, y solo dos de estas son erróneas, las eliminaremos.
+Además es notable que una ocurre durante semana santa y la otra ocurre fuera de horas lectivas,
+por lo que además son observaciones bastante insignificativas en cuanto a observar el estado de las aulas cuando hay actividades en estas.
+
+```{r remove-NAs}
+aula %<>% na.omit
+```
+
+## CO2 según hora del día
+
+Algo primero que se podría estudiar es la concentración de CO2 a lo largo del día.
+Dado que se supone que cuanto más personas haigan en una aula, mayor será las concentraciones de CO2,
+nos esperamos que se observe que durante el horario de clases, que suele ser entre las 8 de la mañana y las 2 de la tarde, se observara una mayor concentración de CO2.
+
+```{r fase1-plot1}
+aula %>%
+  ggplot() +
+  aes(x=as_hms(dt), y=co2) +
+  geom_point() +
+  scale_x_time(breaks = scales::pretty_breaks(n=11)) +
+  xlab("tiempo del día") +
+  ylab ("CO2 (ppm)") +
+  labs(title="CO2 segun tiempo del día")
+```
+
+Como se puede ver, esta hipotesis estaba bastante cierta.
+
+Aunque dado que los datos estan muy agrupados, se puede intentar usar un histograma bidimensional para apreciar exactamente qué niveles se concentran más:
+
+```{r fase1-plot2}
+aula %>%
+  ggplot() +
+  aes(x=as_hms(dt), y=co2) +
+  geom_bin2d() +
+  scale_x_time(breaks = scales::pretty_breaks(n=11)) +
+  xlab("tiempo del día") +
+  ylab ("CO2 (ppm)") +
+  labs(title="CO2 segun tiempo del día")
+```
+
+Algo interesante aquí es que mientras que suben durante tiempos de clase, la mayor densidad de los datos se encuentra en un mismo nivel constantemente.
+Esto se puede a los fines de semana, días festivos, vacaciones, o simplemente días en los que no se utilizó esta clase durante el horario de clases.
+
+Aunque además se puede apreciar una bajada sobre las 11 de la mañana, y además que existen múchos más bins por encima de este nivel,
+pues puede que las observaciones sean demasiado dispersadas para poder observar una concentración particular de CO2 en un dado tiempo del día.
+
+## CO2 a lo largo de la semana
+
+A continuación se estudiará las concentraciones de CO2 según el día de la semana.
+A priori, lo que se espera es que las concentraciones estén elevada de lunes a viernes, dado que no se dan clases durante los fines de semana.
+Para empezar, se creará un gráfico de violines:
+
+```{r fase1-plot3}
+aula %>%
+  ggplot() +
+  aes(group=wday(dt),x=wday(dt, week_start=1, label=TRUE, abbr=FALSE), y=co2) +
+  geom_violin() +
+  xlab("Día de la semana") + 
+  ylab("CO2 (ppm)") +
+  labs(title="CO2 según el día de la semana")
+```
+
+Es apreciable que del lunes al viernes la cantidad máxima de los niveles de CO2 sube hasta el triple de lo normal.
+Pero aún así la distribución de los niveles de CO2 estan más o menos iguales por todos los días de la semana, cerca de los 400 ppm.
+
+```{r fase1-plot4}
+aula %>%
+  ggplot() +
+  aes(group=wday(dt), x=wday(dt, week_start=1, label=TRUE, abbr=FALSE), y=co2) +
+  geom_boxplot() +
+  xlab("Día de la semana") + 
+  ylab("CO2 (ppm)") +
+  labs(title="CO2 según el día de la semana")
+```
+
+Haciendo un boxplot, se puede apreciar que todos los valores durante los días lectivos, todos los valores por encima de los 400 ppm esperados cuando no hay nadie en clase son considerados outliers.
+
+Otra manera de representar el CO2 a lo largo de la semana es con un plot a lo largo de la semana:
+
+```{r fase1-plot5}
+days_of_the_week = c("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+
+aula %>%
+  mutate(
+    semana_diff = as.numeric(dt - floor_date(dt, unit="week", week_start=1)) / (24 * 3600) # normalizar a días en vez de segundos.
+  ) %>%
+  ggplot() +
+  aes(x=semana_diff, y=co2) +
+  geom_point() +
+  scale_x_continuous(breaks = 1:7 - 0.5, labels = days_of_the_week) +
+  xlab("Día de la semana") + 
+  ylab("CO2 (ppm)") +
+  labs(title="CO2 a lo largo de la semana")
+```
+
+En esta se puede apreciar la periodicidad de los 5 días lectivos, con los fines de semana tranquilos en cuanto a niveles de CO2.
+
+## CO2 a lo largo del año
+
+Por último, se estudiará como evolucionan las concentraciones de CO2 a lo largo del año.
+A priori, se espera observarse niveles elevados excepto durante verano.
+
+```{r fase1-plot6}
+aula %>%
+  ggplot() +
+  aes(x=dt, y=co2) +
+  geom_point() +
+  scale_x_datetime(breaks = scales::pretty_breaks(n=12)) +
+  theme(axis.text.x = element_text(angle=60, vjust=0.6, hjust=0.5)) +
+  xlab("Mes del año") +
+  ylab("CO2 (ppm)") +
+  labs(title="CO2 a lo largo del año")
+```
+
+Se puede apreciar que hay niveles elevados durante los dos semestres lectivos de clase, y que hay una gran bajada durante verano.
+Otras observaciones son que además hay una bajada durante verano y durante semana santa,
+y además se observa que los niveles de co2 encontrados durante el segundo trimestre es menor comparado al primero del año siguiente.
 
 # Segunda fase
 
+Para esta parte, se agregarán los niveles de CO2 según varias divisiones del tiempo.
+
+Las agregaciones más interesantes serán el máximo del CO2.
+Dado que como visto en la fase 1 de este análisis, hasta en momentos donde nos esperamos un nivel elevado de las concentraciones de CO2, la media y la mediana
+aún así se situan en un nivel medio.
+
+```{r fase2-prep1}
+
+aula %>%
+  group_by(isoweek(dt)) %>%
+  summarise(
+    co2_max = max(co2),
+    co2_mean= mean(co2)
+  ) %>%
+  rename(week="isoweek(dt)") %>%
+  ggplot() +
+  aes(x=week, y=co2_max) +
+  geom_bar(stat="identity") +
+  geom_smooth(aes(y=co2_mean)) +
+  scale_x_continuous(breaks=scales::breaks_pretty(n=12)) +
+  xlab("Semana ISO") +
+  ylab("CO2 (ppm)") +
+  labs(title="CO2 máximo a lo largo del año")
+```
+
+De nuevo se puede ver lo mismo que se ha visto anteriormente. Solo hay niveles elevados durante los semestres lectivos. Aunque además en esta gráfica es mucho más apreciable la falta de co2 durante semana santa.
+
+```{r fase2-plot2}
+aula %>%
+  group_by(as.numeric(floor_date(dt, unit="hour") - floor_date(dt, unit="week", week_start=1)) / (24 * 3600)) %>%
+  rename(hour = 5) %>%
+  summarize(
+    co2_max  = max(co2),
+    co2_mean = mean(co2)
+  ) %>%
+  ggplot() +
+  aes(x = hour, y = co2_max) +
+  geom_line() +
+  geom_line(aes(y=co2_mean), color="blue") +
+  scale_x_continuous(breaks=1:7-0.5, labels = days_of_the_week) +
+  xlab("Día de la semana") +
+  ylab("CO2 (ppm)") +
+  labs(title="CO2 máximo a lo largo de la semana")
+  
+```
+
+En esta gráfica se puede apreciar que la media sí que sube de manera notable durante las horas lectivas. 
+
 # Tercera fase
+
+Para esta parte del analisis, habrá falta que leer todos los archivos a un único dataframe.
+
+```{r read-many, warning=FALSE}
+aulas_files = paste0("co2/", list.files("co2"))
+aulas <- read_tsv(aulas_files, locale=locale(encoding="iso88591", decimal_mark=","), show_col_types=FALSE, id = "file")
+head(aulas)
+```
+
+Ahora se aplican las mismas transformaciones que se le aplicaron al dataframe que se estudió en las dos primeras fases.
+Pero además se aplicarán algunas aggregaciones para reducir el número de filas de 1081K a un número más manejable.
+Para empezar, se agruparán en grupos de una hora. Dado que hay 12 observaciones por hora, esto reducirá el número de filas por 12. Y además aún existe una resolución bastante buena por si se querrá hacer aggregaciones futuras.
+
+```{r prepare-many}
+aulas %<>%
+  na.omit %>%
+  rename(
+    temperatura="Temperatura (ºC)",
+    humedad="Humedad Relativa (%)",
+    co2="CO2 ppm"
+  ) %>%
+  mutate(
+    dt   = dmy_hms(paste(Fecha, Hora)),
+    room = paste("Aula", sub("^.*(\\d-\\d).*$", "\\1", file)),
+    .keep="unused"
+  ) %>%
+  group_by(floor_date(dt, unit="hour"), room) %>%
+  summarize(
+    co2_max  = max(co2),
+    co2_min  = min(co2),
+    co2_mean = mean(co2),
+    .groups="drop"
+  ) %>%
+  rename(hour = 1)
+  
+
+head(aulas)
+```
+
+```{r fase3-plot1}
+aulas %>%
+  ggplot() +
+  aes(x=as_hms(hour), y=co2_max) +
+  geom_point() +
+  facet_wrap(.~room) +
+  scale_x_time(breaks = scales::pretty_breaks(n=4)) +
+  theme(axis.text.x=element_text(angle=60, vjust=0.5)) +
+  xlab("Hora") +
+  ylab("CO2 (ppm)") +
+  labs(title="CO2 a lo largo del día por aula")
+
+```
+
+Se puede observar en el aula 2-3 parece existir dos medias.
+
+```{r fase3-plot2}
+aulas %>%
+  group_by(as_hms(hour), room) %>%
+  summarize(
+    co2_max  = max(co2_max),
+    co2_min  = min(co2_min),
+    co2_mean = mean(co2_mean),
+    .groups = "drop"
+  ) %>%
+  rename(hour = 1) %>%
+  ggplot() +
+  aes(x=hour, y=co2_max) +
+  geom_area(alpha=0.4, aes(fill=room)) +
+  facet_wrap(~room, nrow=3) +
+  scale_x_time(breaks = scales::pretty_breaks(n=4), expand = c(0,0)) +
+  theme(axis.text.x=element_text(angle=60, vjust=0.5)) +
+  guides(fill="none") +
+  xlab("Hora") +
+  ylab("CO2 (ppm)") +
+  labs(title="CO2 máximo a lo largo del día segun aula")
+```
+
+De nuevo se puede apreciar la existencia de un CO2 elevado en la aula 2-3.
+Pero además, se puede apreciar como algunas aulas tiene mayores concentraciones que otras.
+
+```{r fase3-plot3}
+week_letters = c("L", "M", "X", "J", "V", "S", "D")
+
+aulas %>%
+  group_by(as.numeric(hour - floor_date(hour, unit="week", week_start=1)) / (24*3600), room) %>%
+  summarize(
+    co2_max = max(co2_max),
+    .groups="drop"
+  ) %>%
+  rename(hour=1) %>%
+  ggplot() +
+  aes(x=hour, y=co2_max) +
+  geom_line(aes(col=room)) +
+  facet_wrap(~room, nrow=3) +
+  guides(col="none") +
+  scale_x_continuous(breaks=1:7-0.5, labels = week_letters) +
+  xlab("Día de la semana") +
+  ylab("CO2 (ppm)") + 
+  labs(title="CO2 a lo largo de la semana por aula")
+```
+
+De nuevo, se puede ver que algunas aulas tienen un máximo mayor que otras.
+Además se puede ver muy claramente la anomalía en el Aula 2-3.
+
+A una primera exploración manual de sus datos, parece que las primeras 13K observaciones son algo erróneas:
+
+```{bash weird-23}
+sed -n 1368,1379p co2/Sensor_5_Aula_2-3.txt
+```
+
+Tal que todas las observaciones correspondiente a los primeros 9 días por promedio estan sobre los 700 ppm, y de repente baja a 400 en 5 minutos.
+Considerando la derivada de estos datos, donde está alrededor de 0, y de repente hay un único punto de diferencia de 300, y vuelva a alrededor de 0 en el siguiente instante, parece muy artificial, con lo que tengo que concluir que estos datos son erróneos.
+Hay que notar que estos datos son durante navidades, pues no debería que afectar tanto los datos:
+
+```{r rectify-room2-3}
+aulas %>%
+  filter(ymd_hms("2022-01-09 10:00:00") <= hour | room != "Aula 2-3") -> aulas_fix
+```
+
+Se intenta recrear el último gráfico para ver como se parece con este filtrado:
+
+```{r fase3-plot4}
+aulas_fix %>%
+  group_by(as.numeric(hour - floor_date(hour, unit="week", week_start=1)) / (24*3600), room) %>%
+  summarize(
+    co2_max = max(co2_max),
+    .groups="drop"
+  ) %>%
+  rename(hour=1) %>%
+  ggplot() +
+  aes(x=hour, y=co2_max) +
+  geom_line(aes(col=room)) +
+  facet_wrap(~room, nrow=3) +
+  guides(col="none") +
+  scale_x_continuous(breaks=1:7-0.5, labels = week_letters) +
+  xlab("Día de la semana") +
+  ylab("CO2 (ppm)") + 
+  labs(title="CO2 a lo largo de la semana por aula")
+```
+
+Esto parece ser mucho más correcto.
+
+En cuanto a la distribución, no solo se puede ver que los máximos son mayores en unas aulas coparadas con otras, probablemente por el número de personas que
+esten presente en un tiempo dado, sino que además se puede apreciar que cada aula tiene diferentes niveles de CO2 a lo largo de la semana.
+Por ejemplo, parece que la aula 1-1 esta más activa los lunes y los viernes, mientras que la aula 3-1 esta más activa del lunes al miercoles.
+
+```{r fase3-plot5}
+aulas_fix %>%
+  group_by(isoweek(hour), room) %>%
+  summarize(co2_max = max(co2_max), .groups="drop") %>%
+  rename(week = 1) %>%
+  ggplot() +
+  aes(x=week, y=co2_max) +
+  geom_area(aes(fill=room)) +
+  facet_wrap(~room, nrow=3) +
+  guides(fill="none") +
+  xlab("Semana") +
+  ylab("CO2 (ppm)") +
+  labs(title="CO2 a lo largo del año por aula")
+```
+
+En esta gráfica se puede apreciar la diferencia de CO2 a lo largo del año.
+De esta se puede intentar inferir sobre el uso de las aulas en los semestres.
+Por ejemplo, las aulas 2-5 y 2-6 tienen niveles elevados durante ambos semestres;
+mientras que el aula 3-1 y 3-2  solo tiene niveles elevados durante el primer semestre del curso 2022/2023;
+además las aulas 1-1 y 2-2 muestran niveles bajos excepto durante un par de semanas,
+lo que puede implicar que no se han impartido clases en estas, pero sí se han usado para realizar examenes;
+y por último hay aulas como 2-1, que tiene niveles bajos a lo largo del año.
+
 
 # Reto: mapa de color
 
+Se ve que el gráfico consiste de un `facet_wrap` con un heatmap dentro de este.
+En cuanto a agrupamientos, esta siendo agrupado según el día de la semana, la hora del día, y el aula, obteniendo el máximo del co2 segun estos.
+También es notable que se filtran los datos según la hora del día.
+Algo notable es que hay una diferencia subtil entre lo que indica el subtítulo y la gráfica.
+En el subtítulo, indica que es hasta las 8 en punto de la tarde. Lo que indicaría que la última posible observación sería a las 7 de la tarde.
+Pero en la gráfica, existen celdas desde las 8 de la mañana hasta las 8 de la tarde, ambos incluídos,
+lo que implicaría que está mostrando los datos entre las 8:00 y las 21:00.
+Entre estas dos, la siguiente gráfica intentará seguir la gráfica original, en vez de las direcciones del subtítulo de la original.
+Otro cambio consciente que se realizó es el cambio de las etiquetas de las semanas, se cambió el miercoles de "M" a "X" para que sea diferente al martes.
+
+```{r reto1, fig.height=10, fig.width=10}
+# es notable que las aulas ya estan agrupadas por hora.
+aulas %>%
+  filter(8 <= hour(hour), hour(hour) <= 20) %>%
+  group_by(hour(hour), wday(hour, week_start=1), room) %>%
+  summarize(
+    co2_max = max(co2_max),
+    .groups = "drop"
+  ) %>%
+  rename(hour=1, week=2) %>%
+  ggplot() +
+  aes(x=week, y=hour, fill=co2_max) +
+  scale_y_reverse(breaks=8:20, expand=c(0,0)) +
+  scale_x_continuous(breaks=1:7, expand=c(0,0), labels=week_letters) +
+  scale_fill_continuous(low="#f7c571", high="red") + # los colores se han extraido del PDF que se intenta emitir.
+  coord_equal() +
+  geom_tile(col="white", linewidth=0.7) +
+  facet_wrap(~room, nrow=3) +
+  labs(
+    fill=bquote(CO[2] ~ (ppm)),
+    title=bquote(CO[2] ~ "por horas y días de la semana"),
+    subtitle = "Horas de 8:00 a 21:00",
+    caption = bquote("Cada celda muestra el valor máximo de" ~ CO[2] ~ "observado en esa franja horaria durante 2022.")
+  ) +  theme(
+    plot.title = element_text(hjust=0.5),
+    plot.subtitle = element_text(hjust=0.5),
+    plot.caption = element_text(hjust=0.5),
+    axis.title = element_blank(),
+    strip.background = element_blank(),
+    strip.text = element_text(face="bold"),
+    axis.ticks = element_blank()
+  )
+```
+
 # Reto: mapa de España
 
+Primero se cargan los datos:
+
+```{r map-load}
+world <- map_data("world")
+head(world)
+```
+
+Para plantear el problema, se separarán dataframes para las regiones diferentes, manipularán como sea necesario, y entonces recombinarán en un gráfico final.
+
+```{r map-prep}
+world %>% filter(region == "Canary Islands") %>% mutate(country="Spain") -> canary_data
+world %>% filter(region == "Spain") %>% mutate(country="Spain") -> spain_data
+world %>% filter(region == "Portugal") %>% mutate(country="Portugal") -> portugal_data
+
+surrounding_regions = c("France", "Morocco", "Algeria", "Andorra")
+world %>% filter(region %in% surrounding_regions) %>% mutate -> surrounding_data
+
+# creación del gráfico
+
+canary_data %>%
+  mutate(lat=lat+7, long=long+2) %>%
+  bind_rows(spain_data, portugal_data) %>%
+  ggplot() +
+  aes(y=lat, x=long, group=group, fill=country)+
+  geom_polygon(col="black") +
+  coord_quickmap(ylim=c(34, 45), xlim=c(-17,5)) +
+  scale_fill_manual(values = c("#9189ff", "#f28c8e")) +
+  geom_polygon(data=surrounding_data, fill="white", col="black") +
+  geom_rect(xmin=-17,xmax=-10.5,ymin=34,ymax=36.75, alpha=0, col="blue") +
+  labs(fill="region")
+```

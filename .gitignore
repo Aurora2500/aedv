@@ -2,3 +2,7 @@
 *.pdf
 *.html
 *.png
+.Rproj.user
+*.Rproj
+.RData
+.Rhistory
