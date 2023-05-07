@@ -54,7 +54,257 @@ data_ccaa_mapa %>%
 # Provincias españolas
 
 ```{R read-provincias}
-shapefile_provincias <- readOGR("Provincias_ETRS89_30N.shp")
-
+shapefile_provincias <- readOGR("datos/Provincias_ETRS89_30N.shp")
+data_provincias <- tidy(shapefile_provincias)
+head(data_provincias)
 ```
+
+```{r provincias-nombres}
+nombres_provincias <- data.frame(shapefile_provincias$Texto)
+head(nombres_provincias)
+nombres_provincias$id <- as.character(seq(0, nrow(nombres_provincias)-1))
+head(nombres_provincias)
+```
+
+```{r join-provincias}
+data_provincias_mapa <- left_join(data_provincias, nombres_provincias, by = "id")
+
+head(data_provincias_mapa)
+```
+
+```{r mapa-provincias}
+data_provincias_mapa %>%
+  ggplot() +
+  geom_polygon(aes( x= long, y = lat, group = group),
+               fill = "violetred4",
+               color = "white") +
+  theme_minimal() +
+  theme(
+    axis.line = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    panel.background = element_rect(colour= "darkgrey", size= 0.5)) +
+  ggtitle("Provincias Españolas")
+```
+
+# Municipios españoles
+
+```{r municipios-read}
+shapefile_municipios <- readOGR("datos/Municipios_IGN.shp")
+data_municipios <- tidy(shapefile_municipios)
+head(data_municipios)
+```
+
+```{r codigo-municipios}
+codigo_municipios <- data.frame(shapefile_municipios$CODIGOINE)
+head(codigo_municipios)
+codigo_municipios$id <- as.character(seq(0, nrow(codigo_municipios)-1))
+head(codigo_municipios)
+```
+
+```{r municipios-join}
+data_municipios_mapa <- left_join(data_municipios, codigo_municipios, by = "id") %>%
+  mutate(codigo_ine = as.character(`shapefile_municipios.CODIGOINE`)) %>%
+  select(-`shapefile_municipios.CODIGOINE`)
+head(data_municipios_mapa)
+```
+
+```{r mapa-municipios}
+data_municipios_mapa %>%
+  ggplot() +
+  geom_polygon(aes( x= long, y = lat, group = group),
+               fill = "violetred4",
+               color = "white",
+               size = 0.05) +
+  theme_minimal() +
+  theme(
+    axis.line = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    panel.background = element_rect(colour= "darkgrey", size= 0.5)) +
+  ggtitle("Municipios Españoles")
+```
+
+# Mapa del porcentaje de Risego de Pobreza por Comunidad Autónoma
+
+A diferencia del tutorial, los datos que proviene el instituto nacional estadístico no se podrían usar directamente, de forma que se limpiaron en Google Sheets manualmente y se descargaron como csv
+
+```{r load-pobreza}
+riesgo_pobreza <- read_csv("datos/riesgo_pobreza.csv")
+head(riesgo_pobreza, n=20)
+```
+
+```{r join-pobreza}
+riesgo_pobreza$id <- as.character(riesgo_pobreza$id)
+
+riesgo_pobreza_grafico <- data_ccaa_mapa %>%
+  left_join(riesgo_pobreza, by= "id")
+
+head(riesgo_pobreza_grafico)
+```
+
+```{r mapa-pobreza}
+riesgo_pobreza_grafico %>%
+  ggplot(aes(x=long, y= lat, group = group)) +
+  geom_polygon(aes(fill=Riesgo_pobreza), color= "white", size = 0.2) +
+  labs( title = "Tasa de Riesgo de Pobreza por Comunidades Autónomas",
+        subtitle = "Unidades: Porcentaje",
+        caption = "Fuente: INE",
+        fill = "Tasa (%)") +
+  theme_minimal() +
+  theme(
+    axis.line = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    plot.background = element_rect(fill = "snow", color = NA),
+    panel.background = element_rect(fill= "snow", color = NA),
+    plot.title = element_text(size = 16, hjust = 0),
+    plot.subtitle = element_text(size = 12, hjust = 0),
+    plot.caption = element_text(size = 8, hjust = 1),
+    legend.title = element_text(color = "grey40", size = 8),
+    legend.text = element_text(color = "grey40", size = 7, hjust = 0),
+    legend.position = c(0.93, 0.3),
+    plot.margin = unit(c(0.5,2,0.5,1), "cm"))
+```
+```{r quantiles-pobreza}
+print(quantile(riesgo_pobreza_grafico$Riesgo_pobreza, probs = c(0.2, 0.4, 0.6, 0.8)))
+corte <- c(12, 18, 24, 30)
+val_min <- min(riesgo_pobreza_grafico$Riesgo_pobreza)
+val_max <- max(riesgo_pobreza_grafico$Riesgo_pobreza)
+breaks <- c(val_min, corte, val_max)
+riesgo_pobreza_grafico$breaks <- cut(riesgo_pobreza_grafico$Riesgo_pobreza,
+                                     breaks = breaks,
+                                     include.lowest = T)
+
+breaks_scale <- levels(riesgo_pobreza_grafico$breaks)
+labels_scale <- rev(breaks_scale)
+```
+
+```{r import-wesanderson}
+library(wesanderson)
+colores <- wes_palette("Darjeeling1", 5, type = "discrete")
+```
+
+```{r mapa-pobreza-2}
+riesgo_pobreza_grafico %>%
+  ggplot(aes(x=long, y= lat, group = group)) +
+  geom_polygon(aes(fill=breaks), color= "white", size = 0.2) +
+  labs( title = "Tasa de Riesgo de Pobreza por Comunidades Autónomas",
+        subtitle = "Unidades: Porcentaje",
+        caption = "Fuente: INE",
+        fill = "Tasa (%)") +
+  theme_minimal() +
+  theme(
+    axis.line = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    plot.background = element_rect(fill = "snow", color = NA),
+    panel.background = element_rect(fill= "snow", color = NA),
+    plot.title = element_text(size = 16, hjust = 0),
+    plot.subtitle = element_text(size = 12, hjust = 0),
+    plot.caption = element_text(size = 8, hjust = 1),
+    legend.title = element_text(color = "grey40", size = 8),
+    legend.text = element_text(color = "grey40", size = 7, hjust = 0),
+    legend.position = c(0.93, 0.3),
+    plot.margin = unit(c(0.5,2,0.5,1), "cm")) +
+  scale_fill_manual(
+    values = rev(rev(colores)),
+    breaks = rev(breaks_scale))
+```
+
+# Mapa de la Tasa de Mortalidad por Provincia
+
+```{r import-mortalidad}
+tasa_mortalidad <- read_csv("datos/mortalidad.csv")
+head(tasa_mortalidad) 
+```
+
+```{r join-mortalidad}
+tasa_mortalidad$id <- as.character(tasa_mortalidad$id)
+
+tasa_mortalidad_grafico <- data_provincias_mapa %>%
+  left_join(tasa_mortalidad, by= "id")
+
+head(tasa_mortalidad_grafico)
+```
+
+
+```{r mapa-mortalidad}
+tasa_mortalidad_grafico %>%
+  ggplot(aes(x=long, y= lat, group = group)) +
+  geom_polygon(aes(fill= TM), color= "white", size = 0.2) +
+  labs( title = "Tasa Bruta de Mortalidad por Provincia",
+        subtitle = "Defunciones por mil habitantes",
+        caption = "Fuente: INE",
+        fill = "") +
+  theme_minimal() +
+  theme(
+    axis.line = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    plot.background = element_rect(fill = "snow", color = NA),
+    panel.background = element_rect(fill= "snow", color = NA),
+    plot.title = element_text(size = 16, hjust = 0),
+    plot.subtitle = element_text(size = 12, hjust = 0),
+    plot.caption = element_text(size = 8, hjust = 1),
+    legend.title = element_text(color = "grey40", size = 8),
+    legend.text = element_text(color = "grey40", size = 7, hjust = 0),
+    legend.position = c(0.93, 0.3),
+    plot.margin = unit(c(0.5,2,0.5,1), "cm")) +
+  scale_fill_gradient(low = "yellow", high = "red")
+```
+
+```{r cuantiles-mortalidad}
+quantile(tasa_mortalidad_grafico$TM, probs = c(0.2, 0.4, 0.6, 0.8))
+corte <- c(8, 9.5, 10.5, 12)
+val_min <- min(tasa_mortalidad_grafico$TM)
+val_max <- max(tasa_mortalidad_grafico$TM)
+breaks <- c(val_min, corte, val_max)
+
+tasa_mortalidad_grafico$breaks <- cut(tasa_mortalidad_grafico$TM,
+                                     breaks = breaks,
+                                     include.lowest = T)
+
+breaks_scale <- levels(tasa_mortalidad_grafico$breaks)
+labels_scale <- rev(breaks_scale)
+colores <- wes_palette("Moonrise3", 5, type = "discrete")
+```
+
+```{r mapa-cuantiles-mortalidad}
+tasa_mortalidad_grafico %>%
+  ggplot(aes(x=long, y= lat, group = group)) +
+  geom_polygon(aes(fill=breaks), color= "white", size = 0.2) +
+  labs( title = "Tasa Bruta de Mortalidad por Provincia",
+        subtitle = "Defunciones por mil habitantes",
+        caption = "Fuente: INE",
+        fill = "") +
+  theme_minimal() +
+  theme(
+    axis.line = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    plot.background = element_rect(fill = "snow", color = NA),
+    panel.background = element_rect(fill= "snow", color = NA),
+    plot.title = element_text(size = 16, hjust = 0),
+    plot.subtitle = element_text(size = 12, hjust = 0),
+    plot.caption = element_text(size = 8, hjust = 1),
+    legend.title = element_text(color = "grey40", size = 8),
+    legend.text = element_text(color = "grey40", size = 7, hjust = 0),
+    legend.position = c(0.93, 0.3),
+    plot.margin = unit(c(0.5,2,0.5,1), "cm")) +
+  scale_fill_manual(
+    values = rev(rev(colores)),
+    breaks = rev(breaks_scale))
+```
+
+# Mapa de la Renta Media por Persona por Municipios Españoles
+
+El URL del tutorial está corrompido, y una búsqueda por el INE no proporciona
+los mísmos datos, por lo que no se puede realizar el resto del tutorial.
 

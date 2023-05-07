@@ -1,0 +1,211 @@
+---
+title: "Visualización de población en Canarias"
+author: "Aurora Zuoris"
+date: "2023-05-06"
+output: pdf_document
+---
+
+```{r setup}
+library(tidyverse)
+library(magrittr)
+
+library(rgdal)
+library(broom)
+```
+
+
+# Obtención y descarga de datos
+
+Hay dos fuentes principales para los datos,
+los datos geográficos de los municipios, y los datos sobre la población de los municipios.
+
+Para los datos geográficos, estos se descargaron de esta fuente: https://opendata.sitcan.es/dataset/islas-y-municipios/resource/c2d1d0df-2cfb-48e2-a42d-0a8196e423fc.
+Los datos descargados son un shapefile, por lo que no hay más tratamiento que hay que realizar sobre estos.
+
+Para los datos de población, se descargaron de la siguiente fuente: https://www3.gobiernodecanarias.org/istac/statistical-visualizer/visualizer/data.html?resourceType=dataset&agencyId=ISTAC&resourceId=E30245A_000002&version=1.1#visualization/table
+Estos datos provienen de varios indicadores de población por año, municipio, y sexo.
+De estos, se elige solo el indicador para la población, solo el último año, y de los sexos se elige el total.
+De forma que obtenemos la población de cada municipio en 2021 y nada más, haciendolo lo más sencillo para tratar con estos datos.
+
+# Importación de datos
+
+```{r import-population}
+poblacion <- read_tsv("datos_canarias/poblacion.tsv")
+
+head(poblacion)
+```
+
+Muchas de estas columnas son redundantes, por lo que no se usan por simplicidad
+
+```{r process-population}
+poblacion %<>%
+  select(TERRITORIO, OBS_VALUE) %>%
+  rename(territorio = 1, poblacion = 2)
+
+head(poblacion)
+```
+Además se comprueba que no hayan NAs:
+
+```{r check-NAs}
+summary(poblacion)
+```
+Existe un NA:
+
+```{r check-NAs-2}
+poblacion %>% filter(is.na(poblacion))
+```
+Es un valor que no nos interesa, pues lo podemos ignorar.
+
+Ahora se importan los shapefiles, y se transforman para que sean compatibles para el join.
+
+```{r import-geo}
+shapefile_mun <- readOGR("datos_canarias/municipios.shp")
+datos_mun <- tidy(shapefile_mun)
+head(datos_mun)
+```
+
+```{r nombres-mun}
+nombres_mun <- data.frame(shapefile_mun$municipio)
+nombres_mun$id <- as.character(seq(0, nrow(nombres_mun)-1))
+head(nombres_mun)
+
+left_join(datos_mun, nombres_mun, by = "id") %>%
+  rename(territorio=8) -> data_mun_mapa
+head(data_mun_mapa)
+```
+
+Algo notable es que los nombres del shapefile son en mayuscula, mientras que los nombres de los datos de población no lo son, con lo que por último se transforman estos a mayuscula para que esten en el mismo formato
+
+```{r normalize}
+poblacion %>%
+  mutate(territorio=toupper(territorio)) -> poblacion_upper
+#  right_join(data_mun_mapa, by="territorio") -> datos_mapa_poblacion
+#head(datos_mapa_poblacion)
+```
+
+Por último, antes de hacerles un join, comprobamos que no hayan diferencias:
+
+```{r sets1}
+names_poblacion <- poblacion_upper$territorio
+names_shape <- nombres_mun$shapefile_mun.municipio
+print(length(names_poblacion))
+print(length(names_shape))
+```
+
+Se ve que el dataset de la población tiene más nombres que en el shapefile,
+esto puede darse a que además de municipios, tiene datos para las islas en sí, y otras diviciones parecidas.
+
+```{r sets2}
+setdiff(names_shape, names_poblacion)
+```
+
+Se puede observar que hay 6 valores en el shapefile que no hay en las poblaciones,
+Observando el archivo, se puede ver que estas tienen pequeñas variaciones en el nombre, pero aún así están allí:
+
+```{r sets3}
+setdiff(names_poblacion, names_shape)
+```
+
+```{r fix-names}
+fix_names <- function(n) {
+  if(n == "SANTA MARÍA DE GUÍA DE GRAN CANARIA") "SANTA MARÍA DE GUÍA"
+  else if (n == "FUENCALIENTE DE LA PALMA") "FUENCALIENTE"
+  else if (n == "VILAFLOR DE CHASNA") "VILAFLOR"
+  else if (n == "VALSEQUILLO DE GRAN CANARIA") "VALSEQUILLO"
+  else if (n == "EL PINAR DE EL HIERRO") "EL PINAR"
+  else if (n == "SAN CRISTÓBAL DE LA LAGUNA") "LA LAGUNA"
+  else n
+  
+}
+
+poblacion_upper %<>% mutate(territorio = map_chr(territorio, fix_names))
+
+setdiff(names_shape, poblacion_upper$territorio)
+```
+
+Se ve que ahora la diferencia del conjunto es cero, es decir, no existe ningún
+municipio en el shapefile para el cual no tengamos datos de población.
+
+# Visualización
+
+Para la visualización, se decidió crearla con una escala logarítmica, dado la
+enorme diferencia entre las partes más urbanas y las más rurales.
+De esta forma se puede apreciar más de una forma contínua donde estan los municipios más poblados con cientos de millones de habitantes, los
+semi-rurales con decenas de miles, y las regiones más solitarias que tienen la población en solo unos cuantos miles.
+Mientras que si estarían en una escala linear, no se podría pareciar esta diferencia entre las diferentes órdenes de magnitúd, solo se podría apreciar las ciudades y el resto del mapa parecería igual.
+
+```{r mapa1, dpi=600}
+breaks = c(1e3, 1e4, 1e5)
+
+inner_join(poblacion_upper, data_mun_mapa, by="territorio") %>%
+  ggplot() +
+  aes(x=long, y=lat, group=group) +
+  geom_polygon(aes(fill=poblacion), color="white", size=0.1) +
+  scale_fill_gradient(trans="log", breaks=breaks, labels=breaks) +
+  labs(title="Población segun municipio") +
+  theme(
+    axis.title = element_blank(),
+    axis.text  = element_blank(),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+  )
+```
+
+# Reto
+
+Lo primero que hay que hacer para el reto es dividir los municipios según provincia.
+Para realizar esto se usó la técnica más simple, que es simplemente elegir los municipios
+de cada provincia por separados en la página fuente del ISTAC, y descargarlos ya separados:
+
+```{r import-reto}
+pop_LP = read_tsv("datos_canarias/poblacion_LPGC.tsv") %>% select(TERRITORIO, OBS_VALUE) %>% rename(territorio=1, pop=2)
+pop_SCTF = read_tsv("datos_canarias/poblacion_SCTF.tsv") %>% select(TERRITORIO, OBS_VALUE) %>% rename(territorio=1, pop=2)
+head(pop_LP)
+head(pop_SCTF)
+```
+
+Ahora, para la estructura, lo que se hará es ordenarlos,
+de forma que si se unen horizontalmente, estarán alineaods horizontalmente entre las dos provincias
+según su posición en cuanto a la población.
+Entonces, lo intuitívo sería unirlos horizontalmente.
+Pero lo más óptimo es organizarlos de una manera "tidy", para que sea más óptimo al tratarlos en ggplot.
+
+```{r sort-reto}
+bind_rows(
+  pop_LP %>% arrange(desc(pop)) %>% mutate(orden=seq.int(nrow(pop_LP)), provincia="Las Palmas") %>% head,
+  pop_SCTF %>% arrange(desc(pop)) %>% mutate(orden=seq.int(nrow(pop_SCTF)), provincia="Santa Cruz de Tenerífe") %>% head
+) -> data_reto
+```
+
+```{r plot-reto}
+breaks <- c()
+for (b in 1:6) {
+  breaks <- append(breaks, -b + .24)
+  breaks <- append(breaks, -b - .24)
+}
+ord_names_LP <- pop_LP %>% arrange(desc(pop)) %>% head %>% pull(territorio)
+ord_names_SCTF <- pop_SCTF %>% arrange(desc(pop)) %>% head %>% pull(territorio)
+labels <- c()
+for (i in 1:6) {
+  labels <- append(labels, ord_names_SCTF[i])
+  labels <- append(labels, ord_names_LP[i])
+}
+
+data_reto %>%
+  ggplot() +
+  aes(x=desc(orden), y=pop, fill=provincia, group=provincia) +
+  geom_bar(stat="identity", position="dodge") +
+  coord_flip() +
+  scale_x_continuous("", breaks=breaks, labels=labels) +
+  scale_y_continuous("Población") +
+  labs(
+    title="Los 6 municipios más poblados de cada provincia",
+  ) +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.background   = element_blank(),
+    panel.grid.major.x = element_line(color="darkgrey"),
+    panel.grid.minor.x = element_line(color="grey"),
+  )
+```
