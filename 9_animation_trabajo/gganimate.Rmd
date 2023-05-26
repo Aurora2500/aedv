@@ -1,0 +1,136 @@
+---
+title: "gganimate"
+author: "Aurora Zuoris"
+date: "2023-05-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r imports}
+library(tidyverse)
+library(gganimate)
+```
+
+# Tutorial
+
+## First animation
+
+```{r tutorial-first-animation-1}
+p <- ggplot(iris, aes(x = Petal.Width, y = Petal.Length)) + 
+  geom_point()
+
+plot(p)
+```
+
+
+```{r tutorial-first-animation-2}
+anim <- p + 
+  transition_states(Species,
+                    transition_length = 2,
+                    state_length = 1)
+
+anim
+```
+
+## Easing
+
+```{r tutorial-easing-1}
+anim + 
+  ease_aes('cubic-in-out') # Slow start and end for a smoother look
+```
+
+```{r tutorial-easing-2}
+anim + 
+  ease_aes(y = 'bounce-out') # Sets special ease for y aesthetic
+```
+
+## Labeling
+
+```{r tutorial-labeling-1}
+anim + 
+  ggtitle('Now showing {closest_state}',
+          subtitle = 'Frame {frame} of {nframes}')
+```
+
+
+## Object permanence
+
+```{r tutorial-object-permanence-1}
+ggplot(iris, aes(x = Petal.Width, y = Petal.Length)) + 
+  geom_line(aes(group = rep(1:50, 3)), colour = 'grey') + 
+  geom_point()
+```
+
+
+```{r tutorial-object-permanence-2}
+ggplot(iris, aes(x = Petal.Width, y = Petal.Length)) + 
+  geom_point(aes(colour = Species)) + 
+  transition_states(Species,
+                    transition_length = 2,
+                    state_length = 1)
+```
+
+
+```{r tutorial-object-permanence-3}
+ggplot(iris, aes(x = Petal.Width, y = Petal.Length)) + 
+  geom_point(aes(group = seq_along(Species))) + 
+  transition_states(Species,
+                    transition_length = 2,
+                    state_length = 1)
+```
+
+```{r tutorial-object-permanence-4}
+ggplot(iris, aes(x = Petal.Width, y = Petal.Length)) + 
+  geom_point(aes(colour = Species, group = 1L)) + 
+  transition_states(Species,
+                    transition_length = 2,
+                    state_length = 1)
+```
+
+
+## Enter and exit
+
+```{r tutorial-enter-and-exit-1}
+anim <- ggplot(iris, aes(x = Petal.Width, y = Petal.Length)) + 
+  geom_point(aes(colour = Species), size = 2) + 
+  transition_states(Species,
+                    transition_length = 2,
+                    state_length = 1)
+
+anim + 
+  enter_fade() + 
+  exit_shrink()
+```
+
+```{r tutorial-enter-and-exit-2}
+anim + 
+  enter_fade() + enter_drift(x_mod = -1) + 
+  exit_shrink() + exit_drift(x_mod = 5)
+```
+
+# Población mundial
+
+## Importación de datos
+
+```{r population-import}
+data <- read_csv("population.csv")
+head(data)
+```
+
+Se aseguran que no haya NAs:
+
+```{r population-sanity-check}
+summary(data)
+```
+
+Se filtran los datos para solo considerar los datos posteriores a 1750.
+
+```{r population-filter}
+data %>%
+  filter(
+    Year >= 1750
+  )
+```
