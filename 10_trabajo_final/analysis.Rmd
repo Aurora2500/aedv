@@ -1,0 +1,394 @@
+---
+title: "Analysis de demograficas de ajedrez"
+author: "Aurora Zuoris"
+date: "2023-06-04"
+output:
+  pdf_document:
+    includes:
+      in_header: "preamble.tex"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggpubr)
+```
+
+# Contexto necesario para este estudio
+
+Esta sección tratará sobre el conocimiento necesario para poder interpretar
+partes de este estudio, y además dara varias explicaciones y definiciones
+para por qué se realizaron varias decisiones tomadas.
+
+## El ELO
+
+En el múndo del ajedrez, el ELO es un sistema de puntuación para medir el nivel
+de juego de jugadores.
+Este funciona de manera que cuando dos jugadores se enfrentan, comparando
+sus ELO obtienes una predicción "esperada" del resultado, es decir,
+si se espera que por promedio ambos empaten, o si se espera que uno gane el 70%
+de las veces, etc.
+Y entonces este se actualiza dependiendo de la discrepancia entre el resultado
+esperado y el resultado real.
+
+Concretamente, hay dos ecuaciones para hacer esto. Primero está
+la ecuación para calcular el resultado esperado entre dos jugadores.
+
+$$
+  E_A = \frac{1}{1 + 10^{(R_B-R_A)/400}}
+$$
+Donde:
+
+* $E_A$ es el resultado esperado de un jugador $A$ contra otro jugador $B$.
+* $R_A$ es el ELO del jugador $A$.
+* $R_B$ es el ELO del jugador $B$.
+
+Una vez calculado, el cambio del ELO se puede calcular con la siguiente ecuación.
+
+$$
+  \Delta R_A = K \cdot (S_A - E_A)
+$$
+Donde: 
+
+* $K$ es el factor $K$.
+* $S_A$ es el verdadero resultado (1 para victoria, 0.5 para empate, 0 para derrota).
+* $E_A$ es el resultado esperado calculado anteriormente.
+
+El factor $K$ es un número que empieza alto al empezar a participar, y baja a lo largo del tiempo.
+Es útil para que personas con buenas abilidades no tengan que jugar muchas partidas
+al principio para llegar al elo al que "pertenecen". Para novatos suele ser 32 y
+baja a los 16 para los profesionales.
+
+## Titulos
+
+Además del sistema ELO, FIDE otorga titulos a jugadores segun su criterio.
+Estos criterios suelen consistir de entrar en un torneo que FIDE considere  con un mínimo ELO, que depende
+del titulo que se quiere intentar a obtener, y entonces hace falta que tener un cierto
+número de victorias en ese partido.
+
+Los títulos actuales que uno puede tener son, en ingles, de menor a mayor importancia:
+
+* Candidate Master (CM)
+* FIDE Master (FM)
+* International Master (IM)
+* Grand Master (GM)
+
+## Estadísticos que se usarán en el análisis
+
+Los datos que provienen de FIDE consisten de los jugadores individuales registratos.
+Pero dado que este trabajo trata de analisar las demograficas más ampliamente,
+será necesario agregar y agrupar los datos.
+Por esto es necesario decidir y seleccionar los estadísticos que se usarán para que
+se saque buenas conclusiones del estudio.
+
+### Número de jugadores
+
+El estadístico más simple que se puede sacar es el número de jugadores.
+Este puede indicar claramente el interez que tienen personas
+en jugar al ajedrez.
+
+### Número de jugadores titulados
+
+Otro estadístico parecido al anterior son los jugadores que son titulados.
+
+### ELO
+
+Por último, se usará el ELO en sí para intentar obtener alguna relación a la habilidad
+de los jugadores.
+
+Esto puede tener varios problemas.
+Principalmente, su naturaleza lo hace seguir una escala exponencial,
+dado que cada 400 puntos se espera una ventaja de 90%, esto implica que por cada
+jugador que esté en los 2000s, habran cientos de jugadores en los 1000s, de forma que hay
+muy poca información sobre los mejores jugadores.
+
+Aun así, se usarán tres estadísticos a partir de este.
+Primero esta la media en sí,
+además se usará la media de los 100 mejores jugadores por cada país, y por último
+se intentará obtener una media de los 100 mejores jugadores por cada país compensando
+por la diferencia en el número de jugadores por país.
+Para esta "compensación", se intentará "normalizar" esta media segun el número de jugadores
+en cada país. Esto se debe a que cuanto más participantes hay que son evaluados,
+se puede esperar que el máximo será mayor por el simple hecho de haber más participantes.
+En otras palabras, si existen dos grupos de jugadores, uno de tamaño 100, y otro de
+tamaño 100.000, cada uno con jugadores elegidos uniformemente aleatoriamente,
+se puede esperar que el mejor del segundo grupo será mejor que del primero grupo,
+solo ya que hay más oportunidades de obtener a alguien de mayor abilidad.
+  
+En cuanto a como realizar esta estandarización, a continuación se deriva su formulación.
+
+\begin{theorem}[Máximo de funciones de distribución acumuladas]
+Dado dos variables aleatorias i.i.d. $X$ e $Y$,
+se da que $\text{P}(\max(X, Y) \leqslant z) = \text{P}(X \leqslant z) \cdot \text{P}(Y \leqslant z)$
+\end{theorem}
+
+Esto se da a que si ambos $X$ e $Y$ son menores que $z$, evidentemente el máximo de
+estos dos también lo será.
+
+\begin{theorem}[Valor esperado de una función de distribución acumulativa]
+Dado una función de distribución acumulativa $F_x(x)$, se puede obtener el valor
+esperado de la variable subyaciente con $E[X]=\int_0^\infty (1-F_X(x)) dx$
+\end{theorem}
+
+Dado que $1- F_X(x) = \text{P}(X \geqslant x) = \int_x^\infty f_X(t) dt$,
+
+\begin{align*}
+  \int_0^\infty (1-F_X(x)) dx =
+  \int_0^\infty \text{P}(X \geqslant x) dx =
+  \int_0^\infty \int_x^\infty f_X(t) dt dx
+\end{align*}
+
+Se cambia el orden de integración:
+
+\begin{align*}
+  =
+  \int_0^\infty \int_0^t f_X(x) dx dt =
+  \int_0^\infty [x f_X(t)]_0^t dt =
+  \int_0^\infty t f_X(t) dt =
+  E[X]
+\end{align*}
+
+Por último, usando los dos teoremas anteriores para
+averiguar el valor esperado del máximo de $n$ variables
+aleatorias todas siguiendo la distribución exponencial $f(x;\lambda)$.
+
+\begin{proof}
+Dado que la función de distribución acumulativa de una exponencial con parametro $\lambda$ es
+$$
+  F(x;\lambda)=1-e^{-\lambda x}
+$$
+Se puede obtener que para las $n$ variables, esto es:
+
+\begin{align*}
+  F(x;\lambda,n)&=\prod_{i=1}^n 1-e^{-\lambda x} \\
+  &= \left( 1-e^{-\lambda x} \right)^n
+\end{align*}
+
+Obtenida esta definición para la función acumulativa, podemos
+obtener el valor esperado de la variable aleatoria.
+
+\begin{align*}
+  E[X] &= \int_0^\infty 1 - \left(1 - e^{-\lambda x}\right)^n dx \\
+  &= \int_0^\infty 1 - \sum_{k=0}^n \binom{n}{k} (-1)^k e^{-\lambda x k} dx \\
+  &= \int_0^\infty 1 - \left(\binom{1}{0} \cdot 1 \cdot e^0\right) - \sum_{k=1}^{n} \binom{n}{k} (-1)^k e^{-\lambda x k} dx \\
+  &= \int_0^\infty - \sum_{k=1}^n \binom{n}{k} (-1)^k e^{-\lambda x k} dx \\
+  &= - \sum_{k=1}^n \binom{n}{k} (-1)^k \int_0^\infty  e^{-\lambda x k} dx \\
+  &= \sum_{k=1}^n \binom{n}{k} (-1)^{k+1} \frac{1}{\lambda k} \\
+  &= \frac{1}{\lambda} \sum_{k=1}^n \binom{n}{k} (-1)^{k+1} \frac{1}{k}
+\end{align*}
+\end{proof}
+
+Esta demonstración era sacada de https://web.archive.org/web/20161220132822/https://www.stat.berkeley.edu/~mlugo/stat134-f11/exponential-maximum.pdf,
+que además demuestra con el uso de funciones generadoras que este último además se puede simplificar a lo siguiente:
+
+$$
+  E[X] = \frac{1}{\lambda}\sum_{k=1}^n \frac{1}{k}
+$$
+
+Con esto, para cada país se obtendrá un "valor esperado" de como juegan los mejores, tal que se restará este valor esperado
+de la media de los 100 mejores, con la idea de que los países que tengan un sesgo elevado por el simple hecho de tener más jugadores, será bajado su ELO para compensar.
+
+# Análisis de estadísticos a lo largo del tiempo
+
+En esta sección se estudiarán los estadísticos elegidos a lo largo del tiempo.
+
+```{r load-data}
+data_path <- "./data/"
+data <- read_csv(file.path(data_path, "agg.csv"))
+head(data)
+```
+
+## Número de jugadores
+
+En primer lugar se estudiarán el número de jugadores.
+
+
+```{r plot-time-count-1}
+data %>%
+  ggplot() +
+  aes(x=date, y=count, color=country) +
+  geom_line() +
+  geom_vline(xintercept = ymd(20200320)) +
+  geom_vline(xintercept = ymd(20201023)) +
+  annotate("text", x=ymd(20190701), y=0.9e4, label="COVID") +
+  annotate("text", x=ymd(20210901), y=1e4, label="Gambito\nde dama") +
+  guides(color = FALSE) +
+  labs(
+    x="Fecha",
+    y="Número de jugadores activos",
+    title="Número de jugadores activos a lo largo del tiempo"
+  )
+```
+
+Se puede observar que hubo crecimiento a lo largo del tiempo, hasta que al principio
+del COVID bajo drásticamente el número de jugadores activos, y entonces hubo otra gran
+subida al la salida de la serie de televisión el Gambito de dama.
+
+## Titulados
+
+```{r plot-time-title-1}
+data %>%
+  ggplot() +
+  aes(x=date, y=title_total, color=country) +
+  geom_line() +
+  geom_vline(xintercept = ymd(20200320)) +
+  geom_vline(xintercept = ymd(20201023)) +
+  annotate("text", x=ymd(20190703), y=0.7e3, label="COVID") +
+  annotate("text", x=ymd(20210901), y=0.7e3, label="Gambito\nde dama") +
+  guides(color = FALSE) +
+  labs(
+    x="Fecha",
+    y="Número de titulados",
+    title="Número de titulados a lo largo del tiempo"
+  )
+```
+
+Aquí se puede ver un patron similar, aunque no hay una gran subida obvia durante la gran parte
+del tiempo, aún así hay cambios producidos por el confinamiento y por la salida del show.
+Esto es interesante ya que obtener un título requiere bastante esfuerzo, por lo que
+la salida del Gambito de Damas no solo inspiró a novatos a intentar a jugar al Ajedrez,
+y abandonarlo, sino también empujó a otros jugadores a esforzarse para mejorar lo
+suficiente como para titularse.
+
+## ELO
+
+Primero, como base, se intentará simplemente mostrar la media de cada país para
+ver si hay conclusiones útiles que se pueden extraer.
+
+```{r plot-elo-1}
+data %>%
+  ggplot() +
+  aes(x=date, y=mean, color=country) +
+  geom_line() +
+  guides(color=FALSE) +
+  labs(
+    x="Fecha",
+    y="ELO",
+    title="ELO a lo largo del tiempo"
+  )
+```
+
+Se puede ver que la gráfica es muy liosa, por lo que no se puede sacar mucha información útil a partir de esta.
+
+```{r plot-elo-2}
+data %>%
+  ggplot() +
+  aes(x = date, y = top_100_mean, color=country)+
+  geom_line()+
+  guides(color=FALSE) +
+  labs(
+    x="Fecha",
+    y="ELO",
+    title="ELO de los mejores a lo largo del tiempo"
+  )
+```
+
+De nuevo, hay poca información útil que se puede extraer de aquí.
+
+```{r plot-elo-3}
+data %>%
+  ggplot() +
+  aes(x = date, y = normalized_top_100, color=country) +
+  geom_line()+
+  guides(color=FALSE) +
+  labs(
+    x="Fecha",
+    y="ELO normalizado",
+    title="ELO de los mejores normalizado a lo largo del tiempo"
+  )
+```
+Aunque este gráfico es igualmente de inutil que los otros dos anteriores, observando al eje y, se puede observar que los datos son más agrupados que en el anterior no normalizado.
+Por lo que se puede acertar que hay una cierta verdad al caso de que algunos países tienen mejores jugadores por el simple hecho de ser más poblados.
+
+# Análisis de correlación entre estadísticos y calidad de vida
+
+En esta sección se estudiarán los estadísticos elegidos junto con la evolución
+de la calidad de vida de diferentes países, intentando encontrar alguna correlación.
+
+La calidad de vida se medirá con el "Índice para una vida mejor" de la OCDE.
+
+```{r load-ocde}
+data_ocde = read_csv(file.path(data_path, "well_being.csv"))
+head(data_ocde)
+```
+
+Para esta parte, es más interesante ver los cambios por año, y ver si existe una correlación entre los cambios de las diferentes variables.
+
+Para esto hace falta hacer un join entre los dos conjuntos de datos consigo mismos para obtener las diferencias, y entonces un join entre los dos conjuntos de datos para alinearlos
+
+```{r join}
+data %>%
+  group_by(year(date), country) %>%
+  summarize(count=mean(count), titled=mean(title_total), .groups="drop") %>%
+  rename(year = 1) -> data_year
+
+data_year %>%
+  rename_with(function(name) paste0("last_", name)) %>%
+  mutate(last_year = last_year-1) %>%
+  inner_join(data_year, by=join_by(last_year == year, last_country==country)) %>%
+  mutate(
+    year=last_year + 1,
+    country=last_country,
+    titled=titled-last_titled,
+    count=count-last_count,
+  ) %>%
+  select(year, country, count, titled) -> data_players_diff
+
+data_ocde %>%
+  rename_with(function(name) paste0("last_", name)) %>%
+  mutate(last_year = last_year-1) %>%
+  inner_join(data_ocde, by=join_by(last_year == year, last_country == country, last_variable==variable)) %>%
+  mutate(
+    year=last_year + 1,
+    country=last_country,
+    variable=last_variable,
+    value=value-last_value
+  ) %>%
+  select(year, country, variable, value) -> data_ocde_diff
+
+inner_join(data_players_diff, data_ocde_diff, by=join_by(year==year, country==country)) -> data_fide_ocde
+```
+
+## Número de jugadores
+
+```{r plot-players_corr}
+data_fide_ocde %>%
+  ggplot() +
+  aes(x=count, y=value) +
+  geom_point(alpha=0.2) +
+  stat_cor() +
+  facet_wrap(vars(variable), scales="free") +
+  labs(
+    x="Cambio en el número de jugadores activos",
+    y="Cambio en indicador de calidad de vida",
+    title="Correlaciones entre calidad de vida y número de jugadores activos"
+  )
+```
+
+En cuanto al número de jugadores en función de la calidad de vida, no parece haber ninguna correlación,
+con todos los p-valores para el coefficiente de pearson dando valores superiores a 0.16.
+
+\newpage
+
+## Titulados
+
+```{r plot_title_corr}
+data_fide_ocde %>%
+  ggplot() +
+  aes(x=titled, y=value) +
+  geom_point(alpha=0.2) +
+  stat_cor() +
+  facet_wrap(vars(variable), scales="free") +
+  labs(
+    x="Cambio en el número de titulados",
+    y="Cambio en indicador de calidad de vida",
+    title="Correlaciones entre calidad de vida y número de titulados"
+  )
+```
+
+En cuanto a titulados, parece haber una leve correlación con un p-valor de 0.01
+entre la taza de empleo y si uno se titula.
+
+## ELO
+
+Dado que no se pudieron extraer datos útiles en la sección anterior del ELO, no se intentará de hacerlo aquí.

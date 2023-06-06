@@ -9,22 +9,82 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r libs}
+library(tidyverse)
+library(plotly)
 ```
 
-## Including Plots
+Se usará el gráfico de temperatura por hora del día, día de la semana, y aula
+para este ejemplo.
 
-You can also embed plots, for example:
+Los datos eran proporcionados por la ULPGC.
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+A diferencia del original, se han quitado varios "labels" para que funcionase
+con plotly. Además, se cambió la representación interna de los días de la semana
+para que sean más entendibles cuando se interactua con el gráfico en plotly.
+
+```{r import}
+aulas_files = paste0("co2/", list.files("co2"))
+aulas <- read_tsv(aulas_files, locale=locale(encoding="iso88591", decimal_mark=","), show_col_types=FALSE, id = "file")
+aulas %<>%
+  na.omit %>%
+  rename(
+    temperatura="Temperatura (ºC)",
+    humedad="Humedad Relativa (%)",
+    co2="CO2 ppm"
+  ) %>%
+  mutate(
+    dt   = dmy_hms(paste(Fecha, Hora)),
+    room = paste("Aula", sub("^.*(\\d-\\d).*$", "\\1", file)),
+    .keep="unused"
+  ) %>%
+  group_by(floor_date(dt, unit="hour"), room) %>%
+  summarize(
+    co2_max  = max(co2),
+    co2_min  = min(co2),
+    co2_mean = mean(co2),
+    .groups="drop"
+  ) %>%
+  rename(hour = 1)
+  
+
+head(aulas)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r ggplot, , fig.height=10, fig.width=10}
+week_letters = c("L", "M", "X", "J", "V", "S", "D")
+
+aulas %>%
+  filter(8 <= hour(hour), hour(hour) <= 20) %>%
+  group_by(hour(hour), wday(hour, week_start=1), room) %>%
+  summarize(
+    co2_max = max(co2_max),
+    .groups = "drop"
+  ) %>%
+  rename(hour=1, day=2) %>%
+  mutate(day=factor(week_letters[day], levels=week_letters)) %>%
+  ggplot() +
+  aes(x=day, y=hour, fill=co2_max) +
+  scale_y_reverse(breaks=8:20, expand=c(0,0)) +
+  # scale_x_discrete(breaks=1:7, expand=c(0,0), labels=week_letters) +
+  scale_fill_continuous(low="#f7c571", high="red") + # los colores se han extraido del PDF que se intenta emitir.
+  coord_equal() +
+  geom_tile(col="white", linewidth=0.7) +
+  facet_wrap(~room, nrow=3) +
+  theme(
+    plot.title = element_text(hjust=0.5),
+    plot.subtitle = element_text(hjust=0.5),
+    plot.caption = element_text(hjust=0.5),
+    axis.title = element_blank(),
+    strip.background = element_blank(),
+    strip.text = element_text(face="bold"),
+    axis.ticks = element_blank()
+  ) -> p
+
+p
+```
+
+
+```{r plotly}
+ggplotly(p)
+```
